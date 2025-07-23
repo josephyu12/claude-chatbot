@@ -20,7 +20,7 @@ const handleSubmit = async (e) => {
   setHistory((prevHistory) => [...prevHistory, userMessage, { role: 'assistant', content: "" }]); 
 
   try {
-    const res = await fetch("https://claude-chatbot-g4ed.onrender.com/claude/stream", {
+    const res = await fetch("https://claude-chatbot-g4ed.onrender.com/api/claude/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt })
