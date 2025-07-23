@@ -7,11 +7,6 @@ import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { atomDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
-
-function formatMarkdown(md) {
-  return DOMPurify.sanitize(marked(md, { breaks: true }));
-}
-
 function App() {
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
