@@ -1,0 +1,46 @@
+.App {
+  font-family: Arial, sans-serif;
+  padding: 40px;
+  max-width: 700px;
+  margin: auto;
+}
+
+textarea {
+  width: 100%;
+  font-size: 16px;
+  padding: 10px;
+  margin-bottom: 20px;
+}
+
+button {
+  font-size: 16px;
+  padding: 10px 20px;
+}
+
+.message {
+  background: #f3f3f3;
+  padding: 10px;
+  margin-top: 10px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+}
+
+.message.user {
+  background: #d0ebff;
+}
+
+.message.assistant {
+  background: #e6ffe6;
+}
+
+pre {
+  background: #222;
+  color: #f8f8f2;
+  padding: 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+code {
+  font-family: Menlo, monospace;
+}
