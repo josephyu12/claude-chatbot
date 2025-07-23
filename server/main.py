@@ -23,22 +23,22 @@ chat_memory = []
 class ClaudePrompt(BaseModel):
     prompt: str
 
-@app.post("/api/claude")
-async def chat_with_claude(prompt: ClaudePrompt):
-    global chat_memory
-    chat_memory.append({"role": "user", "content": prompt.prompt})
-    try:
-        response = claude_client.messages.create(
-            model=MODEL,
-            max_tokens=4096,
-            temperature=0.7,
-            messages=chat_memory,
-        )
-        reply = response.content[0].text
-        chat_memory.append({"role": "assistant", "content": reply})
-        return {"response": reply}
-    except Exception as e:
-        return {"response": f"Error: {e}"}
+# @app.post("/api/claude")
+# async def chat_with_claude(prompt: ClaudePrompt):
+#     global chat_memory
+#     chat_memory.append({"role": "user", "content": prompt.prompt})
+#     try:
+#         response = claude_client.messages.create(
+#             model=MODEL,
+#             max_tokens=4096,
+#             temperature=0.7,
+#             messages=chat_memory,
+#         )
+#         reply = response.content[0].text
+#         chat_memory.append({"role": "assistant", "content": reply})
+#         return {"response": reply}
+#     except Exception as e:
+#         return {"response": f"Error: {e}"}
 
 @app.post("/api/claude/stream")
 async def stream_claude_response(prompt: ClaudePrompt):
@@ -54,7 +54,7 @@ async def stream_claude_response(prompt: ClaudePrompt):
                 messages=chat_memory,
             ) as stream:
                 full_response = ""
-                for event in stream.text_stream:  # ✅ this is a regular iterator
+                for event in stream.text_stream:
                     full_response += event
                     yield f"data: {event}\n\n"
                 chat_memory.append({"role": "assistant", "content": full_response})
