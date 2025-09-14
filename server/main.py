@@ -6,7 +6,7 @@ from anthropic import Anthropic
 from dotenv import load_dotenv
 import os
 import uuid
-import shutil
+import os, shutil, uuid, base64, mimetypes
 
 load_dotenv()
 app = FastAPI()
@@ -25,6 +25,7 @@ chat_memory = []
 class ClaudePrompt(BaseModel):
     prompt: str
 
+
 @app.post("/api/claude/upload")
 async def upload_file(prompt: str = Form(...), file: UploadFile = File(...)):
     # Save file to a temp directory
@@ -36,14 +37,33 @@ async def upload_file(prompt: str = Form(...), file: UploadFile = File(...)):
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # You can process the file here (e.g., send to Claude if supported)
-    # For now, just respond with a confirmation and file info
-    response_text = f"Received file '{file.filename}' ({file.content_type}) with prompt: '{prompt}'."
-    # Optionally, add to chat memory
-    global chat_memory
-    chat_memory.append({"role": "user", "content": f"{prompt}\n[File uploaded: {file.filename}]"})
+    # Read file as base64
+    with open(file_path, "rb") as f:
+        image_bytes = f.read()
+    base64_image_data = base64.b64encode(image_bytes).decode("utf-8")
 
-    # Get Claude's response
+    # Detect MIME type
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if not mime_type:
+        mime_type = "image/png"  # fallback
+
+    global chat_memory
+    chat_memory.append({
+        "role": "user",
+        "content": [
+            {"type": "text", "text": prompt},
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": mime_type,
+                    "data": base64_image_data,
+                },
+            },
+        ],
+    })
+
+    # Get Claude’s response
     try:
         response = claude_client.messages.create(
             model=MODEL,
@@ -56,7 +76,7 @@ async def upload_file(prompt: str = Form(...), file: UploadFile = File(...)):
         return JSONResponse({"response": reply, "file": file.filename})
     except Exception as e:
         return JSONResponse({"response": f"Error: {e}", "file": file.filename})
-
+    
 @app.post("/api/claude/stream")
 async def stream_claude_response(prompt: ClaudePrompt):
     global chat_memory
