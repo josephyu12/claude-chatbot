@@ -1,10 +1,12 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Form, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from anthropic import Anthropic
 from dotenv import load_dotenv
 import os
+import uuid
+import shutil
 
 load_dotenv()
 app = FastAPI()
@@ -69,12 +71,14 @@ async def stream_claude_response(prompt: ClaudePrompt):
                 messages=chat_memory,
             ) as stream:
                 full_response = ""
-                for event in stream.text_stream:
-                    full_response += event
-                    yield f"data: {event}\n\n"
+                for event in stream:
+                    if event.type == "content_block_delta":
+                        delta = event.delta.text
+                        full_response += delta
+                        yield f"data: {delta}\n\n"
+                # append final assistant message
                 chat_memory.append({"role": "assistant", "content": full_response})
         except Exception as e:
             yield f"data: ERROR: {str(e)}\n\n"
-
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
