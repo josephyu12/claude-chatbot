@@ -23,22 +23,37 @@ chat_memory = []
 class ClaudePrompt(BaseModel):
     prompt: str
 
-# @app.post("/api/claude")
-# async def chat_with_claude(prompt: ClaudePrompt):
-#     global chat_memory
-#     chat_memory.append({"role": "user", "content": prompt.prompt})
-#     try:
-#         response = claude_client.messages.create(
-#             model=MODEL,
-#             max_tokens=4096,
-#             temperature=0.7,
-#             messages=chat_memory,
-#         )
-#         reply = response.content[0].text
-#         chat_memory.append({"role": "assistant", "content": reply})
-#         return {"response": reply}
-#     except Exception as e:
-#         return {"response": f"Error: {e}"}
+@app.post("/api/claude/upload")
+async def upload_file(prompt: str = Form(...), file: UploadFile = File(...)):
+    # Save file to a temp directory
+    temp_dir = "uploaded_files"
+    os.makedirs(temp_dir, exist_ok=True)
+    file_id = str(uuid.uuid4())
+    file_path = os.path.join(temp_dir, f"{file_id}_{file.filename}")
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # You can process the file here (e.g., send to Claude if supported)
+    # For now, just respond with a confirmation and file info
+    response_text = f"Received file '{file.filename}' ({file.content_type}) with prompt: '{prompt}'."
+    # Optionally, add to chat memory
+    global chat_memory
+    chat_memory.append({"role": "user", "content": f"{prompt}\n[File uploaded: {file.filename}]"})
+
+    # Get Claude's response
+    try:
+        response = claude_client.messages.create(
+            model=MODEL,
+            max_tokens=4096,
+            temperature=0.7,
+            messages=chat_memory,
+        )
+        reply = response.content[0].text
+        chat_memory.append({"role": "assistant", "content": reply})
+        return JSONResponse({"response": reply, "file": file.filename})
+    except Exception as e:
+        return JSONResponse({"response": f"Error: {e}", "file": file.filename})
 
 @app.post("/api/claude/stream")
 async def stream_claude_response(prompt: ClaudePrompt):
