@@ -102,12 +102,6 @@ function App() {
     <div className="App">
       <h1>Claude Chat (Streaming + Memory)</h1>
       <form onSubmit={handleSubmit}>
-        <input
-          id="file-input"
-          type="file"
-          onChange={handleFileChange}
-          style={{ marginBottom: '10px' }}
-        />
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
@@ -116,7 +110,7 @@ function App() {
         />
         <br />
         <input
-          type="file"
+          type="file-input"
           onChange={handleFileChange}
           disabled={loading}
         />
