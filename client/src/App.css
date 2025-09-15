@@ -44,3 +44,43 @@ pre {
 code {
   font-family: Menlo, monospace;
 }
+
+/* KaTeX math display improvements */
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 1rem 0;
+}
+
+.katex {
+  font-size: 1.1em;
+}
+
+/* Prevent inline math from breaking */
+.katex-html {
+  white-space: normal;
+}
+
+/* Add some spacing around math blocks */
+.math-block {
+  margin: 1.5rem 0;
+}
+
+/* Style scrollbar for math overflow */
+.katex-display::-webkit-scrollbar {
+  height: 8px;
+}
+
+.katex-display::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.katex-display::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.katex-display::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}

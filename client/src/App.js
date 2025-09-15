@@ -2,8 +2,11 @@ import { useState } from 'react';
 import './App.css';
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { atomDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import "katex/dist/katex.min.css"; // Import KaTeX CSS for math styling
 
 function App() {
   const [prompt, setPrompt] = useState('');
@@ -51,6 +54,9 @@ function App() {
           }
           return updatedHistory;
         });
+        // Reset file input to delete the chosen file from the input spot
+        const fileInput = document.getElementById('file-input');
+        if (fileInput) fileInput.value = "";
       } else {
         const reader = res.body.getReader();
         const decoder = new TextDecoder("utf-8");
@@ -60,7 +66,7 @@ function App() {
           const { done, value } = await reader.read();
           if (done) break;
           const chunk = decoder.decode(value);
-          const lines = chunk.split("data: ").filter(Boolean);
+          const lines = chunk.split("").filter(Boolean);
 
           for (const line of lines) {
             fullResponse += line.replace(/\n\n$/, "");
@@ -96,6 +102,12 @@ function App() {
     <div className="App">
       <h1>Claude Chat (Streaming + Memory)</h1>
       <form onSubmit={handleSubmit}>
+        <input
+          id="file-input"
+          type="file"
+          onChange={handleFileChange}
+          style={{ marginBottom: '10px' }}
+        />
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
@@ -128,7 +140,8 @@ function App() {
           )}
           <ReactMarkdown
             children={m.content}
-            remarkPlugins={[remarkGfm]}
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[rehypeKatex]}
             components={{
               code({ node, inline, className, children, ...props }) {
                 const match = /language-(\w+)/.exec(className || "");
