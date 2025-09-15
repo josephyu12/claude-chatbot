@@ -66,21 +66,18 @@ function App() {
           const { done, value } = await reader.read();
           if (done) break;
           const chunk = decoder.decode(value);
-          const lines = chunk.split("\n").filter(Boolean);
+          const lines = chunk.split("data: ").filter(Boolean);
           
           for (const line of lines) {
-            if (line.startsWith("data:")) {
-              const text = line.replace(/^data:\s*/, "");
-              fullResponse += text;
-              setHistory((prevHistory) => {
-                const updatedHistory = [...prevHistory];
-                const lastAssistantMessageIndex = updatedHistory.length - 1;
-                if (updatedHistory[lastAssistantMessageIndex] && updatedHistory[lastAssistantMessageIndex].role === 'assistant') {
-                  updatedHistory[lastAssistantMessageIndex].content = fullResponse;
-                }
-                return updatedHistory;
-              });
-            }
+            fullResponse += line.replace(/\n\n$/, "");
+            setHistory((prevHistory) => {
+              const updatedHistory = [...prevHistory];
+              const lastAssistantMessageIndex = updatedHistory.length - 1;
+              if (updatedHistory[lastAssistantMessageIndex] && updatedHistory[lastAssistantMessageIndex].role === 'assistant') {
+                updatedHistory[lastAssistantMessageIndex].content = fullResponse;
+              }
+              return updatedHistory;
+            });
           }
         }
       }
