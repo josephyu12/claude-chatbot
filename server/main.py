@@ -48,20 +48,23 @@ async def upload_file(prompt: str = Form(...), file: UploadFile = File(...)):
         mime_type = "image/png"  # fallback
 
     global chat_memory
+    content_blocks = []
+    if prompt and prompt.strip():
+        content_blocks.append({"type": "text", "text": prompt.strip()})
+    content_blocks.append({
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": mime_type,
+            "data": base64_image_data,
+        },
+    })
+
     chat_memory.append({
         "role": "user",
-        "content": [
-            {"type": "text", "text": prompt},
-            {
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": mime_type,
-                    "data": base64_image_data,
-                },
-            },
-        ],
+        "content": content_blocks,
     })
+
 
     # Get Claude’s response
     try:
