@@ -110,7 +110,8 @@ function App() {
         />
         <br />
         <input
-          type="file-input"
+          id="file-input"
+          type="file"
           onChange={handleFileChange}
           disabled={loading}
         />
