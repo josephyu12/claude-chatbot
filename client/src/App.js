@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import './App.css';
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -55,16 +55,63 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState([]);
   const [file, setFile] = useState(null);
+  const [pastedImage, setPastedImage] = useState(null);
+  const textareaRef = useRef(null);
 
   const handleFileChange = (e) => {
     setFile(e.target.files[0]);
+    setPastedImage(null); // Clear pasted image when file is selected
+  };
+
+  const handlePaste = async (e) => {
+    const items = e.clipboardData.items;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        e.preventDefault();
+        const blob = items[i].getAsFile();
+        setFile(blob);
+        setPastedImage(URL.createObjectURL(blob));
+        
+        // Clear the file input
+        const fileInput = document.getElementById('file-input');
+        if (fileInput) fileInput.value = "";
+        break;
+      }
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    // Submit on Enter, but allow Shift+Enter for new lines
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (prompt.trim() || file) {
+        handleSubmit(e);
+      }
+    }
+  };
+
+  const clearFile = () => {
+    setFile(null);
+    setPastedImage(null);
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) fileInput.value = "";
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
+    if (!prompt.trim() && !file) return;
+    
     setLoading(true);
 
-    const userMessage = { role: 'user', content: prompt, file: file ? { name: file.name, type: file.type, url: URL.createObjectURL(file) } : null };
+    const userMessage = { 
+      role: 'user', 
+      content: prompt, 
+      file: file ? { 
+        name: file.name || 'pasted-image.png', 
+        type: file.type, 
+        url: pastedImage || URL.createObjectURL(file) 
+      } : null 
+    };
     setHistory((prevHistory) => [...prevHistory, userMessage, { role: 'assistant', content: "", isStreaming: true }]); 
 
     try {
@@ -97,9 +144,6 @@ function App() {
           }
           return updatedHistory;
         });
-        // Reset file input to delete the chosen file from the input spot
-        const fileInput = document.getElementById('file-input');
-        if (fileInput) fileInput.value = "";
       } else {
         const reader = res.body.getReader();
         const decoder = new TextDecoder("utf-8");
@@ -120,7 +164,7 @@ function App() {
             break;
           }
           const chunk = decoder.decode(value);
-          const lines = chunk.split("data: ").filter(Boolean);
+          const lines = chunk.split("").filter(Boolean);
           
           for (const line of lines) {
             fullResponse += line.replace(/\n\n$/, "");
@@ -149,7 +193,7 @@ function App() {
     }
 
     setPrompt('');
-    setFile(null);
+    clearFile();
     setLoading(false);
   };
 
@@ -157,22 +201,62 @@ function App() {
     <div className="App">
       <h1>Claude Chat (Streaming + Memory)</h1>
       <form onSubmit={handleSubmit}>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Paste your prompt..."
-          rows={10}
-        />
+        <div style={{ position: 'relative' }}>
+          <textarea
+            ref={textareaRef}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onPaste={handlePaste}
+            onKeyDown={handleKeyDown}
+            placeholder="Paste your prompt or image... (Enter to send, Shift+Enter for new line)"
+            rows={10}
+            disabled={loading}
+            style={{ paddingBottom: pastedImage ? '60px' : '10px' }}
+          />
+          {pastedImage && (
+            <div style={{ 
+              position: 'absolute', 
+              bottom: '10px', 
+              left: '10px', 
+              display: 'flex', 
+              alignItems: 'center',
+              background: 'rgba(255,255,255,0.9)',
+              padding: '5px',
+              borderRadius: '5px'
+            }}>
+              <img 
+                src={pastedImage} 
+                alt="Pasted" 
+                style={{ height: '40px', marginRight: '10px', borderRadius: '3px' }} 
+              />
+              <button 
+                type="button" 
+                onClick={clearFile}
+                style={{ 
+                  background: '#ff4444', 
+                  color: 'white', 
+                  border: 'none', 
+                  borderRadius: '3px',
+                  padding: '5px 10px',
+                  cursor: 'pointer'
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          )}
+        </div>
         <br />
         <input
           id="file-input"
           type="file"
           onChange={handleFileChange}
           disabled={loading}
+          style={{ marginBottom: '10px' }}
         />
         <br />
-        <button type="submit" disabled={loading}>
-          {loading ? 'Thinking...' : 'Ask Claude'}
+        <button type="submit" disabled={loading || (!prompt.trim() && !file)}>
+          {loading ? 'Thinking...' : 'Ask Claude (or press Enter)'}
         </button>
       </form>
       
