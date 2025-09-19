@@ -4,9 +4,12 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from anthropic import Anthropic
 from dotenv import load_dotenv
+from PIL import Image
+import io
 import os
 import uuid
-import os, shutil, uuid, base64, mimetypes
+import base64
+import mimetypes
 
 load_dotenv()
 app = FastAPI()
@@ -25,13 +28,51 @@ chat_memory = []
 class ClaudePrompt(BaseModel):
     prompt: str
 
+def compress_image(image_bytes: bytes, max_size_mb: float = 4.5) -> tuple[bytes, str]:
+    """
+    Compress an image to ensure it's under the specified size limit.
+    Returns the compressed image bytes and the media type.
+    """
+    max_size_bytes = int(max_size_mb * 1024 * 1024)
+    
+    # Open the image
+    img = Image.open(io.BytesIO(image_bytes))
+    
+    # Convert RGBA to RGB if necessary (JPEG doesn't support transparency)
+    if img.mode in ('RGBA', 'LA', 'P'):
+        background = Image.new('RGB', img.size, (255, 255, 255))
+        if img.mode == 'P':
+            img = img.convert('RGBA')
+        background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+        img = background
+    
+    # Start with high quality
+    quality = 95
+    
+    while True:
+        # Save to bytes
+        output = io.BytesIO()
+        img.save(output, format='JPEG', quality=quality, optimize=True)
+        output_bytes = output.getvalue()
+        
+        # Check size
+        if len(output_bytes) <= max_size_bytes:
+            return output_bytes, "image/jpeg"
+        
+        # If quality is already low, resize the image
+        if quality <= 20:
+            width, height = img.size
+            scale = 0.8
+            new_width = int(width * scale)
+            new_height = int(height * scale)
+            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            quality = 85  # Reset quality after resize
+        else:
+            # Reduce quality
+            quality -= 10
 
 @app.post("/api/claude/upload")
 async def upload_file(prompt: str = Form(...), files: list[UploadFile] = File(...)):
-    # Save files to a temp directory
-    temp_dir = "uploaded_files"
-    os.makedirs(temp_dir, exist_ok=True)
-    
     content_blocks = []
     file_names = []
     
@@ -41,38 +82,53 @@ async def upload_file(prompt: str = Form(...), files: list[UploadFile] = File(..
     
     # Process each uploaded file
     for file in files:
-        file_id = str(uuid.uuid4())
-        file_path = os.path.join(temp_dir, f"{file_id}_{file.filename}")
-        
-        # Save file
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        
-        # Read file as base64
-        with open(file_path, "rb") as f:
-            file_bytes = f.read()
-        base64_data = base64.b64encode(file_bytes).decode("utf-8")
-        
-        # Detect MIME type
-        mime_type, _ = mimetypes.guess_type(file_path)
-        if not mime_type:
-            mime_type = "image/png"  # fallback
-        
-        # Add image to content blocks
-        content_blocks.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": mime_type,
-                "data": base64_data,
-            },
-        })
-        
-        file_names.append(file.filename)
-        
-        # Clean up temp file
-        os.remove(file_path)
+        try:
+            # Read file content
+            file_bytes = await file.read()
+            original_size = len(file_bytes)
+            
+            # Detect MIME type
+            mime_type, _ = mimetypes.guess_type(file.filename)
+            if not mime_type:
+                mime_type = "image/jpeg"
+            
+            # Check if it's an image and if it needs compression
+            if mime_type.startswith('image/'):
+                # Check size (5MB = 5 * 1024 * 1024 bytes)
+                if original_size > 5 * 1024 * 1024:
+                    print(f"Compressing {file.filename} (original size: {original_size:,} bytes)")
+                    file_bytes, mime_type = compress_image(file_bytes)
+                    print(f"Compressed to {len(file_bytes):,} bytes")
+            
+            # Convert to base64
+            base64_data = base64.b64encode(file_bytes).decode("utf-8")
+            
+            # Verify the base64 encoded size
+            encoded_size = len(base64_data)
+            if encoded_size > 5 * 1024 * 1024:
+                print(f"Warning: Base64 encoded size is still too large: {encoded_size:,} bytes")
+                # Try more aggressive compression
+                file_bytes, mime_type = compress_image(file_bytes, max_size_mb=3.5)
+                base64_data = base64.b64encode(file_bytes).decode("utf-8")
+            
+            # Add image to content blocks
+            content_blocks.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": mime_type,
+                    "data": base64_data,
+                },
+            })
+            
+            file_names.append(file.filename)
+            
+        except Exception as e:
+            print(f"Error processing file {file.filename}: {e}")
+            # You might want to add error info to the response
+            continue
     
+    # Add to chat memory
     global chat_memory
     chat_memory.append({
         "role": "user",
@@ -91,8 +147,14 @@ async def upload_file(prompt: str = Form(...), files: list[UploadFile] = File(..
         chat_memory.append({"role": "assistant", "content": reply})
         return JSONResponse({"response": reply, "files": file_names})
     except Exception as e:
-        return JSONResponse({"response": f"Error: {e}", "files": file_names})
-    
+        # Remove the failed message from memory
+        if chat_memory and chat_memory[-1]["role"] == "user":
+            chat_memory.pop()
+        return JSONResponse(
+            {"response": f"Error: {str(e)}", "files": file_names}, 
+            status_code=500
+        )
+
 @app.post("/api/claude/stream")
 async def stream_claude_response(prompt: ClaudePrompt):
     global chat_memory
@@ -111,10 +173,20 @@ async def stream_claude_response(prompt: ClaudePrompt):
                     if event.type == "content_block_delta":
                         delta = event.delta.text
                         full_response += delta
-                        yield f"data: {delta}\n\n"
+                        yield f"{delta}\n\n"
                 # append final assistant message
                 chat_memory.append({"role": "assistant", "content": full_response})
         except Exception as e:
+            # Remove the failed message from memory
+            if chat_memory and chat_memory[-1]["role"] == "user":
+                chat_memory.pop()
             yield f"data: ERROR: {str(e)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+@app.post("/api/claude/clear")
+async def clear_chat():
+    """Clear the chat memory"""
+    global chat_memory
+    chat_memory = []
+    return JSONResponse({"message": "Chat memory cleared"})
