@@ -195,7 +195,7 @@ function App() {
             break;
           }
           const chunk = decoder.decode(value);
-          const lines = chunk.split("").filter(Boolean);
+          const lines = chunk.split("data: ").filter(Boolean);
           
           for (const line of lines) {
             fullResponse += line.replace(/\n\n$/, "");
