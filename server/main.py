@@ -10,6 +10,10 @@ import os
 import uuid
 import base64
 import mimetypes
+import PyPDF2
+import docx
+import pandas as pd
+import chardet
 
 load_dotenv()
 app = FastAPI()
@@ -20,6 +24,52 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+def extract_text_from_file(file_bytes: bytes, filename: str, mime_type: str) -> str:
+    """Extract text content from various file types"""
+    try:
+        # PDF files
+        if mime_type == 'application/pdf' or filename.lower().endswith('.pdf'):
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+            text = ""
+            for page in pdf_reader.pages:
+                text += page.extract_text() + "\n"
+            return text.strip()
+        
+        # Word documents
+        elif mime_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 
+                          'application/msword'] or filename.lower().endswith(('.docx', '.doc')):
+            doc = docx.Document(io.BytesIO(file_bytes))
+            text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+            return text.strip()
+        
+        # Excel files
+        elif mime_type in ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                          'application/vnd.ms-excel'] or filename.lower().endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(io.BytesIO(file_bytes))
+            return df.to_string()
+        
+        # CSV files
+        elif mime_type == 'text/csv' or filename.lower().endswith('.csv'):
+            # Detect encoding
+            detected = chardet.detect(file_bytes)
+            encoding = detected['encoding'] or 'utf-8'
+            text = file_bytes.decode(encoding)
+            return text
+        
+        # Text files
+        elif mime_type == 'text/plain' or filename.lower().endswith('.txt'):
+            # Detect encoding
+            detected = chardet.detect(file_bytes)
+            encoding = detected['encoding'] or 'utf-8'
+            return file_bytes.decode(encoding)
+        
+        else:
+            return None
+            
+    except Exception as e:
+        print(f"Error extracting text from {filename}: {e}")
+        return None
 
 claude_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 MODEL = "claude-opus-4-20250514"
@@ -90,7 +140,19 @@ async def upload_file(prompt: str = Form(...), files: list[UploadFile] = File(..
             # Detect MIME type
             mime_type, _ = mimetypes.guess_type(file.filename)
             if not mime_type:
-                mime_type = "image/jpeg"
+                # Try to determine from file extension
+                if file.filename.lower().endswith('.pdf'):
+                    mime_type = "application/pdf"
+                elif file.filename.lower().endswith(('.doc', '.docx')):
+                    mime_type = "application/msword"
+                elif file.filename.lower().endswith(('.xls', '.xlsx')):
+                    mime_type = "application/vnd.ms-excel"
+                elif file.filename.lower().endswith('.csv'):
+                    mime_type = "text/csv"
+                elif file.filename.lower().endswith('.txt'):
+                    mime_type = "text/plain"
+                else:
+                    mime_type = "application/octet-stream"
             
             # Check if it's an image and if it needs compression
             if mime_type.startswith('image/'):
@@ -100,26 +162,41 @@ async def upload_file(prompt: str = Form(...), files: list[UploadFile] = File(..
                     file_bytes, mime_type = compress_image(file_bytes)
                     print(f"Compressed to {len(file_bytes):,} bytes")
             
-            # Convert to base64
-            base64_data = base64.b64encode(file_bytes).decode("utf-8")
-            
-            # Verify the base64 encoded size
-            encoded_size = len(base64_data)
-            if encoded_size > 5 * 1024 * 1024:
-                print(f"Warning: Base64 encoded size is still too large: {encoded_size:,} bytes")
-                # Try more aggressive compression
-                file_bytes, mime_type = compress_image(file_bytes, max_size_mb=3.5)
+                # Convert to base64
                 base64_data = base64.b64encode(file_bytes).decode("utf-8")
-            
-            # Add image to content blocks
-            content_blocks.append({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": mime_type,
-                    "data": base64_data,
-                },
-            })
+                
+                # Verify the base64 encoded size
+                encoded_size = len(base64_data)
+                if encoded_size > 5 * 1024 * 1024:
+                    print(f"Warning: Base64 encoded size is still too large: {encoded_size:,} bytes")
+                    # Try more aggressive compression
+                    file_bytes, mime_type = compress_image(file_bytes, max_size_mb=3.5)
+                    base64_data = base64.b64encode(file_bytes).decode("utf-8")
+                
+                # Add image to content blocks
+                content_blocks.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime_type,
+                        "data": base64_data,
+                    },
+                })
+            else:
+                # Try to extract text from document
+                extracted_text = extract_text_from_file(file_bytes, file.filename, mime_type)
+                if extracted_text:
+                    # Add document content as text
+                    content_blocks.append({
+                        "type": "text",
+                        "text": f"\n\n[Content from {file.filename}]:\n{extracted_text}\n"
+                    })
+                else:
+                    # If extraction failed, notify user
+                    content_blocks.append({
+                        "type": "text",
+                        "text": f"\n\n[Unable to extract content from {file.filename}]\n"
+                    })
             
             file_names.append(file.filename)
             

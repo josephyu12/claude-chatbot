@@ -6,3 +6,8 @@ pydantic
 httpx
 python-multipart
 pillow
+PyPDF2
+python-docx
+pandas
+openpyxl
+chardet

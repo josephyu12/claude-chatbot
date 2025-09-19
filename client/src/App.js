@@ -320,6 +320,7 @@ function App() {
             onChange={handleFileChange}
             disabled={loading}
             multiple
+            accept="image/*,.pdf,.doc,.docx,.txt,.csv,.xlsx,.xls"
             style={{ marginBottom: '10px' }}
           />
         <br />
