@@ -54,29 +54,45 @@ function App() {
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState([]);
-  const [file, setFile] = useState(null);
-  const [pastedImage, setPastedImage] = useState(null);
+  const [files, setFiles] = useState([]);
+  const [pastedImages, setPastedImages] = useState([]);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
-    setPastedImage(null); // Clear pasted image when file is selected
+    const selectedFiles = Array.from(e.target.files);
+    const newFiles = selectedFiles.map(file => ({
+      file: file,
+      url: URL.createObjectURL(file),
+      name: file.name,
+      type: file.type
+    }));
+    setFiles(prevFiles => [...prevFiles, ...newFiles]);
+    setPastedImages([]); // Clear pasted images when files are selected
   };
 
   const handlePaste = async (e) => {
     const items = e.clipboardData.items;
+    const imageItems = [];
+    
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf('image') !== -1) {
         e.preventDefault();
         const blob = items[i].getAsFile();
-        setFile(blob);
-        setPastedImage(URL.createObjectURL(blob));
-        
-        // Clear the file input
-        const fileInput = document.getElementById('file-input');
-        if (fileInput) fileInput.value = "";
-        break;
+        const url = URL.createObjectURL(blob);
+        imageItems.push({
+          file: blob,
+          url: url,
+          name: `pasted-image-${Date.now()}-${i}.png`,
+          type: blob.type
+        });
       }
+    }
+    
+    if (imageItems.length > 0) {
+      setPastedImages(prevImages => [...prevImages, ...imageItems]);
+      setFiles([]); // Clear selected files when pasting images
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -84,42 +100,57 @@ function App() {
     // Submit on Enter, but allow Shift+Enter for new lines
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (prompt.trim() || file) {
+      if (prompt.trim() || files.length > 0 || pastedImages.length > 0) {
         handleSubmit(e);
       }
     }
   };
 
-  const clearFile = () => {
-    setFile(null);
-    setPastedImage(null);
-    const fileInput = document.getElementById('file-input');
-    if (fileInput) fileInput.value = "";
+  const removeFile = (index, isPasted = false) => {
+    if (isPasted) {
+      setPastedImages(prevImages => prevImages.filter((_, i) => i !== index));
+    } else {
+      setFiles(prevFiles => prevFiles.filter((_, i) => i !== index));
+    }
+  };
+
+  const clearAllFiles = () => {
+    // Revoke all object URLs to prevent memory leaks
+    [...files, ...pastedImages].forEach(item => {
+      if (item.url) URL.revokeObjectURL(item.url);
+    });
+    
+    setFiles([]);
+    setPastedImages([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
-    if (!prompt.trim() && !file) return;
+    const allFiles = [...files, ...pastedImages];
+    if (!prompt.trim() && allFiles.length === 0) return;
     
     setLoading(true);
 
     const userMessage = { 
       role: 'user', 
       content: prompt, 
-      file: file ? { 
-        name: file.name || 'pasted-image.png', 
-        type: file.type, 
-        url: pastedImage || URL.createObjectURL(file) 
-      } : null 
+      files: allFiles.length > 0 ? allFiles.map(item => ({
+        name: item.name,
+        type: item.type,
+        url: item.url
+      })) : null
     };
     setHistory((prevHistory) => [...prevHistory, userMessage, { role: 'assistant', content: "", isStreaming: true }]); 
 
     try {
       let res;
-      if (file) {
+      if (allFiles.length > 0) {
         const formData = new FormData();
         formData.append("prompt", prompt);
-        formData.append("file", file);
+        allFiles.forEach((item, index) => {
+          formData.append("files", item.file);
+        });
 
         res = await fetch("https://claude-chatbot-g4ed.onrender.com/api/claude/upload", {
           method: "POST",
@@ -133,7 +164,7 @@ function App() {
         });
       }
 
-      if (file) {
+      if (allFiles.length > 0) {
         const data = await res.json();
         setHistory((prevHistory) => {
           const updatedHistory = [...prevHistory];
@@ -164,7 +195,7 @@ function App() {
             break;
           }
           const chunk = decoder.decode(value);
-          const lines = chunk.split("data: ").filter(Boolean);
+          const lines = chunk.split("").filter(Boolean);
           
           for (const line of lines) {
             fullResponse += line.replace(/\n\n$/, "");
@@ -193,9 +224,11 @@ function App() {
     }
 
     setPrompt('');
-    clearFile();
+    clearAllFiles();
     setLoading(false);
   };
+
+  const allFiles = [...files, ...pastedImages];
 
   return (
     <div className="App">
@@ -208,56 +241,91 @@ function App() {
             onChange={(e) => setPrompt(e.target.value)}
             onPaste={handlePaste}
             onKeyDown={handleKeyDown}
-            placeholder="Paste your prompt or image... (Enter to send, Shift+Enter for new line)"
+            placeholder="Paste your prompt or images... (Enter to send, Shift+Enter for new line)"
             rows={10}
             disabled={loading}
-            style={{ paddingBottom: pastedImage ? '60px' : '10px' }}
+            style={{ paddingBottom: allFiles.length > 0 ? '80px' : '10px' }}
           />
-          {pastedImage && (
+          {allFiles.length > 0 && (
             <div style={{ 
               position: 'absolute', 
               bottom: '10px', 
               left: '10px', 
+              right: '10px',
               display: 'flex', 
               alignItems: 'center',
               background: 'rgba(255,255,255,0.9)',
               padding: '5px',
-              borderRadius: '5px'
+              borderRadius: '5px',
+              flexWrap: 'wrap',
+              gap: '5px',
+              maxHeight: '70px',
+              overflowY: 'auto'
             }}>
-              <img 
-                src={pastedImage} 
-                alt="Pasted" 
-                style={{ height: '40px', marginRight: '10px', borderRadius: '3px' }} 
-              />
+              {allFiles.map((item, index) => (
+                <div key={index} style={{ display: 'flex', alignItems: 'center', background: '#f0f0f0', borderRadius: '3px', padding: '2px 5px' }}>
+                  {item.type.startsWith('image/') ? (
+                    <img 
+                      src={item.url} 
+                      alt={item.name} 
+                      style={{ height: '30px', marginRight: '5px', borderRadius: '3px' }} 
+                    />
+                  ) : (
+                    <span style={{ fontSize: '12px', marginRight: '5px' }}>📄</span>
+                  )}
+                  <span style={{ fontSize: '12px', maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {item.name}
+                  </span>
+                  <button 
+                    type="button" 
+                    onClick={() => removeFile(files.indexOf(item) !== -1 ? files.indexOf(item) : index, files.indexOf(item) === -1)}
+                    style={{ 
+                      background: '#ff4444', 
+                      color: 'white', 
+                      border: 'none', 
+                      borderRadius: '3px',
+                      padding: '2px 5px',
+                      marginLeft: '5px',
+                      cursor: 'pointer',
+                      fontSize: '11px'
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
               <button 
                 type="button" 
-                onClick={clearFile}
+                onClick={clearAllFiles}
                 style={{ 
                   background: '#ff4444', 
                   color: 'white', 
                   border: 'none', 
                   borderRadius: '3px',
-                  padding: '5px 10px',
-                  cursor: 'pointer'
+                  padding: '2px 8px',
+                  cursor: 'pointer',
+                  fontSize: '12px'
                 }}
               >
-                Remove
+                Clear All
               </button>
             </div>
           )}
         </div>
         <br />
-        <input
-          id="file-input"
-          type="file"
-          onChange={handleFileChange}
-          disabled={loading}
-          style={{ marginBottom: '10px' }}
-        />
+          <input
+            ref={fileInputRef}
+            id="file-input"
+            type="file"
+            onChange={handleFileChange}
+            disabled={loading}
+            multiple
+            style={{ marginBottom: '10px' }}
+          />
         <br />
-        <button type="submit" disabled={loading || (!prompt.trim() && !file)}>
-          {loading ? 'Thinking...' : 'Ask Claude (or press Enter)'}
-        </button>
+          <button type="submit" disabled={loading || (!prompt.trim() && allFiles.length === 0)}>
+            {loading ? 'Thinking...' : 'Ask Claude (or press Enter)'}
+          </button>
       </form>
       
       {[...history].reverse().map((m, i) => {
@@ -267,13 +335,19 @@ function App() {
         return (
           <div key={history.length - 1 - i} className={`message ${m.role}`}> 
             <strong>{m.role === "user" ? "You" : "Claude"}:</strong>
-            {m.file && (
-              <div style={{ margin: "8px 0" }}>
-                {m.file.type.startsWith("image/") ? (
-                  <img src={m.file.url} alt={m.file.name} style={{ maxWidth: "300px", borderRadius: "8px" }} />
-                ) : (
-                  <a href={m.file.url} download={m.file.name}>{m.file.name}</a>
-                )}
+            {m.files && (
+              <div style={{ margin: "8px 0", display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                {m.files.map((file, fileIndex) => (
+                  <div key={fileIndex}>
+                    {file.type.startsWith("image/") ? (
+                      <img src={file.url} alt={file.name} style={{ maxWidth: "200px", borderRadius: "8px" }} />
+                    ) : (
+                      <div style={{ padding: '8px', background: '#f0f0f0', borderRadius: '8px' }}>
+                        📄 {file.name}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
             <ReactMarkdown
